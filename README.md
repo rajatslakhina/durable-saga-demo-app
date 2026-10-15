@@ -21,14 +21,28 @@ The **Invariants** section is computed live from the fake server's ledger for th
 
 ## Screenshots
 
-**None yet.** This app has not been launched on a Simulator or device by the author (see *Verification*), so there is nothing genuine to show, and a mock-up would be worse than nothing.
+These are real captures of the app running on an **iPhone 17 Pro Simulator (iOS 26.3)**, built and launched from Xcode 26.3 on 15 Oct 2026. The mouse pointer is visible in some of them because the Simulator was driven with clicks.
+
+**The headline scenario: the app is killed after the payment hold, then relaunched.**
+
+| Killed mid-saga | After relaunch | The journal tells the story |
+|---|---|---|
+| <img src="Demo/Screenshots/02-killed-mid-saga.jpg" width="260" alt="Journal ends at 'intent authorizePayment #1' with no outcome, while the server ledger already shows the hold applied"> | <img src="Demo/Screenshots/03-recovered-invariants.jpg" width="260" alt="Outcome completed by process 2; max effects per idempotency key 1; requests sent 5 vs effects applied 4"> | <img src="Demo/Screenshots/04-recovered-journal.jpg" width="260" alt="Journal shows authorizePayment intent #1 then #2, then ok, then the order completes"> |
+| The journal stops at `intent authorizePayment #1`: the effect is **in doubt**. The server ledger shows that the hold did land. | Process 2 resumed from the journal and finished. 5 requests reached the server, but only 4 effects were applied: **max 1 per idempotency key**. | Attempt #2 of `authorizePayment` reused the same key, so the server returned the existing hold instead of placing a second one. |
+
+**A lost "place order" response: park, then revive.**
+
+| Parked at the pivot | Revived and completed |
+|---|---|
+| <img src="Demo/Screenshots/05-parked-at-pivot.jpg" width="260" alt="Three transient placeOrder failures, then PARKED placeOrder (forward)"> | <img src="Demo/Screenshots/06-revived-completed.jpg" width="260" alt="Completed after revive; placeOrder applied once despite four requests"> |
+| Three timeouts, and the order may exist, so the saga **parks forward** instead of voiding the payment. | The operator revives it. The pivot is retried with the same key, and `placeOrder` is applied ×1. |
 
 ## How to run it
 
 1. `git clone https://github.com/rajatslakhina/durable-saga-demo-app.git`
 2. Open `Demo.xcodeproj` in Xcode 16 or later.
 3. Xcode resolves **durable-saga-kit** from GitHub. It is a remote Swift package with the requirement *Up to Next Major Version* from `1.0.0`. The committed `Package.resolved` locks it to the exact `v1.0.0` commit until you choose to update.
-4. Select the **Demo** scheme and any iOS 16+ Simulator, then Build & Run (⌘R). (CI compiles exactly this. The author has not yet run it on a Simulator; see *Verification*.)
+4. Select the **Demo** scheme and any iOS 16+ Simulator, then Build & Run (⌘R). The screenshots above came from exactly this: Xcode 26.3, iPhone 17 Pro Simulator, iOS 26.3.
 5. Toggle a failure scenario, tap **Place order**, and follow the journal.
 
 ## How it is put together
@@ -51,11 +65,18 @@ The app uses `InMemoryJournal` so that each launch starts clean. "Kill" retires 
 
 Exactly what has and has not been verified:
 
-- **Simulator / device run: not done.** The author has not launched this app. These repos are built by an unattended scheduled job, and computer-use access to Xcode and the Simulator is not available to it. "CI compiles it" below is evidence that it builds. It is not evidence that it runs.
-- **Screenshots: none,** for the same reason.
-- **View-model logic, exercised headlessly (local, Linux, Swift 6.0.3):** `CheckoutLab.swift`, byte-identical to the shipped file, was compiled against the library with a small stand-in for Combine's `ObservableObject`/`@Published`. It was then driven through 7 scenario tests: the happy path, a decline rolling back to zero live effects, lost pivot responses → park → revive → `placeOrder applied ×1`, kill → relaunch → completed with one effect per key, cancel before the pivot → rollback, cancel during lost pivot responses → no rollback, and invariants scoped to the current order. 7/7 passed. `ContentView.swift` and `DemoApp.swift` (SwiftUI) cannot compile on Linux. Their first compile is CI's.
+- **Simulator run: done (15 Oct 2026).** The app was opened from a fresh download of this repo in Xcode 26.3. Xcode resolved `durable-saga-kit` `1.0.0` from GitHub, built the app, and launched it on an iPhone 17 Pro Simulator (iOS 26.3). As it launched, the debugger briefly showed the main thread paused inside UIKit, although no breakpoints were set. A few seconds later Xcode reported *Running*, and I did not press Continue. The app was then exercised by hand through three scenarios, all with the outcomes the table above describes:
+  - the happy path: completed, 10 journal records
+  - kill after the payment hold, then relaunch: completed by process 2, 5 requests and 4 effects, max 1 per key
+  - lost place-order responses, then park, then revive: completed, `placeOrder` applied ×1 after 4 requests
+- **Screenshots:** six captures, five of them embedded above (`Demo/Screenshots/`).
+- **Not done:** the decline and cancel scenarios were not exercised on the Simulator. They are covered by the headless tests below.
+- **View-model logic, exercised headlessly (local, Linux, Swift 6.0.3):** `CheckoutLab.swift`, byte-identical to the shipped file, was compiled against the library with a small stand-in for Combine's `ObservableObject`/`@Published`. It was then driven through 7 scenario tests: the happy path, a decline rolling back to zero live effects, lost pivot responses → park → revive → `placeOrder applied ×1`, kill → relaunch → completed with one effect per key, cancel before the pivot → rollback, cancel during lost pivot responses → no rollback, and invariants scoped to the current order. 7/7 passed. `ContentView.swift` and `DemoApp.swift` (SwiftUI) cannot compile on Linux. They were compiled first by CI, then by the Xcode 26.3 run above.
 - **`Demo.xcodeproj`:** written by hand. Braces and parentheses balance, every one of its 24 object ids is defined, the shared scheme points at the `Demo` target, and a third-party `pbxproj` parser loads it.
-- **CI:** _(filled in from the Actions tab once it has run)_
+- **CI** ([Actions](https://github.com/rajatslakhina/durable-saga-demo-app/actions)): one `macos-15` job on Xcode 16.4.
+  - It runs `xcodebuild -resolvePackageDependencies`, which fetches `durable-saga-kit` from GitHub and checks out `1.0.0`.
+  - It then builds the `Demo` scheme for `generic/platform=iOS Simulator`: `** BUILD SUCCEEDED **`, with 0 Swift warnings and 0 errors.
+  - The job compiles the app and does not run it. The run is the Simulator item above.
 - **Independent quality gate:** a fresh Opus reviewer graded both repos in each of 3 rounds, the maximum this pipeline allows.
   - Round 1 failed them. It found 2 blockers, the main one being that a cancel during the order's retry backoff voided the payment on an order that might exist. The reviewer reproduced it in this app. It also found 6 major issues.
   - Round 2 failed them on 1 major issue: a failure the server had definitively declined was retried after a crash. It also found documentation gaps.
