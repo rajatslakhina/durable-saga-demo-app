@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "durable-saga-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/rajatslakhina/durable-saga-kit.git",
+      "state" : {
+        "revision" : "830a8c8ecf50c235dd3d614bfad8fdb1af6c4a31",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 2
+}
